@@ -4,14 +4,20 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 
 public class MainApplication {
     public static final int PORT = 8189;
+
+    private static final int POOL_SIZE = 10;
 
     // + К домашнему задания:
     // Добавить логирование!!!
@@ -24,34 +30,25 @@ public class MainApplication {
             router.put("/greetings", new GreetingsWebApplication());
             //System.out.println("Сервер запущен, порт: " + PORT);
             logger.info("Сервер запущен, порт: " + PORT);
-            try (Socket socket = serverSocket.accept()) {
-                //System.out.println("Клиент подключился");
-                logger.info("Клиент подключился");
-                byte[] buffer = new byte[2048];
-                int n = socket.getInputStream().read(buffer);
-                String rawRequest = new String(buffer, 0, n);
-                Request request = new Request(rawRequest);
-                //System.out.println("Получен запрос:");
-                logger.info("Получен запрос:");
-                request.show(logger);
-                boolean executed = false;
-                for (Map.Entry<String, MyWebApplication> e : router.entrySet()) {
-                    if (request.getUri().startsWith(e.getKey())) {
-                        e.getValue().execute(request, socket.getOutputStream());
-                        executed = true;
-                        break;
-                    }
+
+            //добавляем пул потоков
+            ExecutorService serv = Executors.newFixedThreadPool(POOL_SIZE);
+
+            while (true) {
+                try {
+                    Socket socket = serverSocket.accept();
+                    ClientHandler handler = new ClientHandler(router, socket, logger);
+                    serv.execute(handler);
+
+                } catch (IOException e) {
+                    //e.printStackTrace();
+                    logger.error(e.getMessage());
                 }
-                if (!executed) {
-                    socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Unknown application</h1></body></html>").getBytes(StandardCharsets.UTF_8));
-                }
-            } catch (IOException e) {
+            }
+
+        } catch(IOException e){
                 //e.printStackTrace();
                 logger.error(e.getMessage());
             }
-        } catch (IOException e) {
-            //e.printStackTrace();
-            logger.error(e.getMessage());
-        }
     }
 }
